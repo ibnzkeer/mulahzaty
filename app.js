@@ -368,6 +368,8 @@ function wireEvents() {
 
   const themeBtn = document.getElementById('themeToggleBtn');
   if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+  const authThemeBtn = document.getElementById('authThemeToggleBtn');
+  if (authThemeBtn) authThemeBtn.addEventListener('click', toggleTheme);
 
   document.getElementById('newNoteBtn').addEventListener('click', createNote);
   document.getElementById('emptyNewBtn').addEventListener('click', createNote);

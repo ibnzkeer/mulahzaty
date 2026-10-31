@@ -172,6 +172,13 @@ html.dark .auth-blob { opacity: .35; }
 html.dark .brand-mark { box-shadow: 0 8px 24px rgba(0,0,0,.5); }
 html.dark .toast { box-shadow: 0 12px 40px rgba(0,0,0,.6); }
 
+/* Auth view theme toggle */
+.auth-theme-toggle {
+  position: absolute; top: 20px; left: 20px; z-index: 2;
+  background: var(--surface); color: var(--text-2);
+}
+html.dark .auth-theme-toggle { background: var(--surface-2); }
+
 /* Toggle icon visibility */
 .icon-sun, .icon-moon { width: 18px; height: 18px; }
 html:not(.dark) .icon-moon { display: none; }
