@@ -1,5 +1,5 @@
 /* ===== Supabase Client ===== */
-const supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 /* ===== State ===== */
 const state = {
@@ -71,7 +71,7 @@ function filteredNotes() {
 
 /* ===== Auth ===== */
 async function register(name, email, password) {
-  const { data, error } = await supabase.auth.signUp({
+  const { data, error } = await supabaseClient.auth.signUp({
     email: email.trim().toLowerCase(),
     password,
     options: { data: { name: name.trim() } },
@@ -86,7 +86,7 @@ async function register(name, email, password) {
 }
 
 async function login(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
     email: email.trim().toLowerCase(),
     password,
   });
@@ -96,7 +96,7 @@ async function login(email, password) {
 
 async function logout() {
   flushSave();
-  await supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
   state.user = null; state.notes = []; state.activeId = null;
   showAuth();
 }
@@ -117,7 +117,7 @@ async function loadNotes() {
   renderNotesList();
   const listEl = document.getElementById('notesList');
   listEl.innerHTML = '<div class="notes-empty"><div>جارٍ تحميل الملاحظات...</div></div>';
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('notes')
     .select('*')
     .order('updated_at', { ascending: false });
@@ -136,7 +136,7 @@ async function loadNotes() {
 
 async function createNote() {
   if (!state.user) return;
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('notes')
     .insert({ user_id: state.user.id, title: '', content: '', color: '', pinned: false })
     .select()
@@ -190,7 +190,7 @@ function flushSave() {
   const title = titleEl.value;
   const content = contentEl.value;
   note.title = title; note.content = content; note.updatedAt = Date.now();
-  supabase.from('notes').update({ title, content }).eq('id', note.id).then(({ error }) => {
+  supabaseClient.from('notes').update({ title, content }).eq('id', note.id).then(({ error }) => {
     if (error) toast('فشل الحفظ: ' + error.message, 'error');
   });
 }
@@ -208,7 +208,7 @@ function scheduleSave() {
     const title = document.getElementById('noteTitle').value;
     const content = document.getElementById('noteContent').value;
     note.title = title; note.content = content; note.updatedAt = Date.now();
-    const { error } = await supabase.from('notes').update({ title, content }).eq('id', targetId);
+    const { error } = await supabaseClient.from('notes').update({ title, content }).eq('id', targetId);
     if (error) { toast('فشل الحفظ: ' + error.message, 'error'); return; }
     renderNotesList();
     updateMeta(note);
@@ -222,7 +222,7 @@ function scheduleSave() {
 async function deleteNote(id) {
   flushSave();
   if (!confirm('هل أنت متأكد من حذف هذه الملاحظة؟ لا يمكن التراجع.')) return;
-  const { error } = await supabase.from('notes').delete().eq('id', id);
+  const { error } = await supabaseClient.from('notes').delete().eq('id', id);
   if (error) { toast('فشل الحذف: ' + error.message, 'error'); return; }
   state.notes = state.notes.filter(n => n.id !== id);
   state.activeId = null;
@@ -236,7 +236,7 @@ async function togglePin() {
   const note = state.notes.find(n => n.id === state.activeId);
   if (!note) return;
   const newVal = !note.pinned;
-  const { error } = await supabase.from('notes').update({ pinned: newVal }).eq('id', note.id);
+  const { error } = await supabaseClient.from('notes').update({ pinned: newVal }).eq('id', note.id);
   if (error) { toast('فشل التحديث: ' + error.message, 'error'); return; }
   note.pinned = newVal;
   note.updatedAt = Date.now();
@@ -247,7 +247,7 @@ async function togglePin() {
 async function setColor(color) {
   const note = state.notes.find(n => n.id === state.activeId);
   if (!note) return;
-  const { error } = await supabase.from('notes').update({ color }).eq('id', note.id);
+  const { error } = await supabaseClient.from('notes').update({ color }).eq('id', note.id);
   if (error) { toast('فشل التحديث: ' + error.message, 'error'); return; }
   note.color = color;
   note.updatedAt = Date.now();
@@ -386,7 +386,7 @@ async function init() {
   wireEvents();
 
   // Listen to auth state changes
-  supabase.auth.onAuthStateChange((event, session) => {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' && session && session.user) {
       enterApp(session.user);
     } else if (event === 'SIGNED_OUT') {
@@ -396,7 +396,7 @@ async function init() {
   });
 
   // Check existing session
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     enterApp(session.user);
   } else {
