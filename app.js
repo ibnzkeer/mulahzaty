@@ -1,9 +1,5 @@
-/* ===== Storage Keys ===== */
-const K = {
-  users: 'mulahzaty_users',
-  session: 'mulahzaty_session',
-  notes: (uid) => `mulahzaty_notes_${uid}`,
-};
+/* ===== Supabase Client ===== */
+const supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 /* ===== State ===== */
 const state = {
@@ -15,34 +11,7 @@ const state = {
 };
 
 /* ===== Helpers ===== */
-function uid() { return 'n_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
-function userId() { return 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
-
-async function hashPassword(pw) {
-  if (window.crypto && window.crypto.subtle) {
-    try {
-      const enc = new TextEncoder().encode(pw);
-      const buf = await crypto.subtle.digest('SHA-256', enc);
-      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    } catch (e) { /* fallback */ }
-  }
-  let h = 5381;
-  for (let i = 0; i < pw.length; i++) h = ((h << 5) + h) + pw.charCodeAt(i);
-  return 'fb_' + (h >>> 0).toString(16);
-}
-
-function getUsers() { try { return JSON.parse(localStorage.getItem(K.users) || '[]'); } catch { return []; } }
-function setUsers(u) { localStorage.setItem(K.users, JSON.stringify(u)); }
-function getSession() { return localStorage.getItem(K.session); }
-function setSession(id) { if (id) localStorage.setItem(K.session, id); else localStorage.removeItem(K.session); }
-
-function loadNotes() {
-  try { state.notes = JSON.parse(localStorage.getItem(K.notes(state.user.id)) || '[]'); }
-  catch { state.notes = []; }
-}
-function saveNotes() {
-  localStorage.setItem(K.notes(state.user.id), JSON.stringify(state.notes));
-}
+function uid() { return crypto.randomUUID ? crypto.randomUUID() : ('n_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8)); }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -63,10 +32,9 @@ function toast(msg, type = '') {
   t.textContent = msg;
   t.className = 'toast' + (type ? ' ' + type : '');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.add('hidden'), 2800);
+  t._timer = setTimeout(() => t.classList.add('hidden'), 3200);
 }
 
-/* ===== Auth ===== */
 function showAuth() {
   document.getElementById('authView').classList.remove('hidden');
   document.getElementById('appView').classList.add('hidden');
@@ -76,48 +44,18 @@ function showApp() {
   document.getElementById('appView').classList.remove('hidden');
 }
 
-async function register(name, email, password) {
-  email = email.trim().toLowerCase();
-  const users = getUsers();
-  if (users.some(u => u.email === email)) throw new Error('البريد الإلكتروني مستخدم بالفعل');
-  if (password.length < 6) throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
-  const hash = await hashPassword(password);
-  const user = { id: userId(), name: name.trim(), email, password: hash, createdAt: Date.now() };
-  users.push(user);
-  setUsers(users);
-  return user;
+function mapNote(row) {
+  return {
+    id: row.id,
+    title: row.title || '',
+    content: row.content || '',
+    color: row.color || '',
+    pinned: !!row.pinned,
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+  };
 }
 
-async function login(email, password) {
-  email = email.trim().toLowerCase();
-  const users = getUsers();
-  const user = users.find(u => u.email === email);
-  if (!user) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة');
-  const hash = await hashPassword(password);
-  if (hash !== user.password) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة');
-  return user;
-}
-
-function enterApp(user) {
-  state.user = { id: user.id, name: user.name, email: user.email };
-  setSession(user.id);
-  loadNotes();
-  document.getElementById('userName').textContent = user.name;
-  document.getElementById('userAvatar').textContent = (user.name || '?').charAt(0).toUpperCase();
-  showApp();
-  renderNotesList();
-  if (state.notes.length) openNote(state.notes.slice().sort(sortNotes)[0].id);
-  else showEmpty();
-}
-
-function logout() {
-  flushSave();
-  state.user = null; state.notes = []; state.activeId = null;
-  setSession(null);
-  showAuth();
-}
-
-/* ===== Notes logic ===== */
 function sortNotes(a, b) {
   if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
   return (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
@@ -131,22 +69,84 @@ function filteredNotes() {
   return list;
 }
 
-function createNote() {
-  const note = {
-    id: uid(),
-    title: '',
-    content: '',
-    color: '',
-    pinned: false,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+/* ===== Auth ===== */
+async function register(name, email, password) {
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim().toLowerCase(),
+    password,
+    options: { data: { name: name.trim() } },
+  });
+  if (error) throw error;
+  if (!data.session) {
+    // email confirmation required
+    toast('تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني ثم تسجيل الدخول.', 'success');
+    return null;
+  }
+  return data.user;
+}
+
+async function login(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim().toLowerCase(),
+    password,
+  });
+  if (error) throw error;
+  return data.user;
+}
+
+async function logout() {
+  flushSave();
+  await supabase.auth.signOut();
+  state.user = null; state.notes = []; state.activeId = null;
+  showAuth();
+}
+
+function enterApp(user) {
+  if (state.user && state.user.id === user.id) return;
+  state.user = user;
+  const name = (user.user_metadata && user.user_metadata.name) || user.email.split('@')[0];
+  document.getElementById('userName').textContent = name;
+  document.getElementById('userAvatar').textContent = (name || '?').charAt(0).toUpperCase();
+  showApp();
+  loadNotes();
+}
+
+/* ===== Notes ===== */
+async function loadNotes() {
+  state.notes = [];
+  renderNotesList();
+  const listEl = document.getElementById('notesList');
+  listEl.innerHTML = '<div class="notes-empty"><div>جارٍ تحميل الملاحظات...</div></div>';
+  const { data, error } = await supabase
+    .from('notes')
+    .select('*')
+    .order('updated_at', { ascending: false });
+  if (error) {
+    toast('فشل تحميل الملاحظات: ' + error.message, 'error');
+    state.notes = [];
+    renderNotesList();
+    showEmpty();
+    return;
+  }
+  state.notes = (data || []).map(mapNote);
+  renderNotesList();
+  if (state.notes.length) openNote(state.notes.slice().sort(sortNotes)[0].id);
+  else showEmpty();
+}
+
+async function createNote() {
+  if (!state.user) return;
+  const { data, error } = await supabase
+    .from('notes')
+    .insert({ user_id: state.user.id, title: '', content: '', color: '', pinned: false })
+    .select()
+    .single();
+  if (error) { toast('فشل إنشاء ملاحظة: ' + error.message, 'error'); return; }
+  const note = mapNote(data);
   state.notes.unshift(note);
-  saveNotes();
   state.activeId = note.id;
   renderNotesList();
   openNote(note.id);
-  // focus title
   setTimeout(() => document.getElementById('noteTitle').focus(), 50);
 }
 
@@ -161,13 +161,9 @@ function openNote(id) {
   const contentEl = document.getElementById('noteContent');
   titleEl.value = note.title;
   contentEl.value = note.content;
-  // color
   document.querySelectorAll('.color-dot').forEach(d => d.classList.toggle('selected', d.dataset.color === (note.color || '')));
-  // pin
-  document.getElementById('pinBtn').classList.toggle('pinned-active', !!note.pinned);
   document.getElementById('pinBtn').style.color = note.pinned ? 'var(--accent)' : '';
   updateMeta(note);
-  // editor bg tint
   applyColor(note.color);
   renderNotesList();
 }
@@ -191,10 +187,12 @@ function flushSave() {
   const titleEl = document.getElementById('noteTitle');
   const contentEl = document.getElementById('noteContent');
   if (!titleEl || !contentEl) return;
-  note.title = titleEl.value;
-  note.content = contentEl.value;
-  note.updatedAt = Date.now();
-  saveNotes();
+  const title = titleEl.value;
+  const content = contentEl.value;
+  note.title = title; note.content = content; note.updatedAt = Date.now();
+  supabase.from('notes').update({ title, content }).eq('id', note.id).then(({ error }) => {
+    if (error) toast('فشل الحفظ: ' + error.message, 'error');
+  });
 }
 
 function scheduleSave() {
@@ -203,14 +201,15 @@ function scheduleSave() {
   status.className = 'save-status saving';
   clearTimeout(state.saveTimer);
   const targetId = state.activeId;
-  state.saveTimer = setTimeout(() => {
-    if (state.activeId !== targetId) return; // switched away; already flushed
+  state.saveTimer = setTimeout(async () => {
+    if (state.activeId !== targetId) return;
     const note = state.notes.find(n => n.id === targetId);
     if (!note) return;
-    note.title = document.getElementById('noteTitle').value;
-    note.content = document.getElementById('noteContent').value;
-    note.updatedAt = Date.now();
-    saveNotes();
+    const title = document.getElementById('noteTitle').value;
+    const content = document.getElementById('noteContent').value;
+    note.title = title; note.content = content; note.updatedAt = Date.now();
+    const { error } = await supabase.from('notes').update({ title, content }).eq('id', targetId);
+    if (error) { toast('فشل الحفظ: ' + error.message, 'error'); return; }
     renderNotesList();
     updateMeta(note);
     const st = document.getElementById('saveStatus');
@@ -220,11 +219,12 @@ function scheduleSave() {
   }, 600);
 }
 
-function deleteNote(id) {
+async function deleteNote(id) {
   flushSave();
   if (!confirm('هل أنت متأكد من حذف هذه الملاحظة؟ لا يمكن التراجع.')) return;
+  const { error } = await supabase.from('notes').delete().eq('id', id);
+  if (error) { toast('فشل الحذف: ' + error.message, 'error'); return; }
   state.notes = state.notes.filter(n => n.id !== id);
-  saveNotes();
   state.activeId = null;
   renderNotesList();
   if (state.notes.length) openNote(state.notes.slice().sort(sortNotes)[0].id);
@@ -232,22 +232,25 @@ function deleteNote(id) {
   toast('تم حذف الملاحظة', 'success');
 }
 
-function togglePin() {
+async function togglePin() {
   const note = state.notes.find(n => n.id === state.activeId);
   if (!note) return;
-  note.pinned = !note.pinned;
+  const newVal = !note.pinned;
+  const { error } = await supabase.from('notes').update({ pinned: newVal }).eq('id', note.id);
+  if (error) { toast('فشل التحديث: ' + error.message, 'error'); return; }
+  note.pinned = newVal;
   note.updatedAt = Date.now();
-  saveNotes();
   openNote(note.id);
   toast(note.pinned ? 'تم تثبيت الملاحظة' : 'تم إلغاء التثبيت', 'success');
 }
 
-function setColor(color) {
+async function setColor(color) {
   const note = state.notes.find(n => n.id === state.activeId);
   if (!note) return;
+  const { error } = await supabase.from('notes').update({ color }).eq('id', note.id);
+  if (error) { toast('فشل التحديث: ' + error.message, 'error'); return; }
   note.color = color;
   note.updatedAt = Date.now();
-  saveNotes();
   document.querySelectorAll('.color-dot').forEach(d => d.classList.toggle('selected', d.dataset.color === color));
   applyColor(color);
   renderNotesList();
@@ -284,17 +287,14 @@ function renderNotesList() {
       </div>`;
     }).join('');
   }
-  // click handlers
   list.querySelectorAll('.note-item').forEach(el => {
     el.addEventListener('click', () => openNote(el.dataset.id));
   });
-  // count
   document.getElementById('notesCount').textContent = `${state.notes.length} ملاحظة`;
 }
 
 /* ===== Event wiring ===== */
 function wireEvents() {
-  // auth tabs
   document.querySelectorAll('.auth-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
@@ -307,7 +307,6 @@ function wireEvents() {
     });
   });
 
-  // toggle password
   document.querySelectorAll('.toggle-pw').forEach(btn => {
     btn.addEventListener('click', () => {
       const input = document.getElementById(btn.dataset.target);
@@ -315,7 +314,6 @@ function wireEvents() {
     });
   });
 
-  // login
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
@@ -326,11 +324,10 @@ function wireEvents() {
       const user = await login(email, pw);
       enterApp(user);
     } catch (ex) {
-      err.textContent = ex.message;
+      err.textContent = ex.message || 'فشل تسجيل الدخول';
     }
   });
 
-  // register
   document.getElementById('registerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = document.getElementById('regName').value;
@@ -340,73 +337,71 @@ function wireEvents() {
     const err = document.getElementById('registerError');
     err.textContent = '';
     if (pw !== pw2) { err.textContent = 'كلمتا المرور غير متطابقتين'; return; }
+    if (pw.length < 6) { err.textContent = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'; return; }
     try {
       const user = await register(name, email, pw);
-      toast('تم إنشاء الحساب بنجاح', 'success');
-      // auto login
-      enterApp(user);
+      if (user) enterApp(user);
     } catch (ex) {
-      err.textContent = ex.message;
+      err.textContent = ex.message || 'فشل إنشاء الحساب';
     }
   });
 
-  // logout
   document.getElementById('logoutBtn').addEventListener('click', () => {
     if (confirm('هل تريد تسجيل الخروج؟')) logout();
   });
 
-  // new note
   document.getElementById('newNoteBtn').addEventListener('click', createNote);
   document.getElementById('emptyNewBtn').addEventListener('click', createNote);
 
-  // editor inputs
   document.getElementById('noteTitle').addEventListener('input', scheduleSave);
   document.getElementById('noteContent').addEventListener('input', scheduleSave);
 
-  // pin
   document.getElementById('pinBtn').addEventListener('click', togglePin);
 
-  // delete
   document.getElementById('deleteBtn').addEventListener('click', () => {
     if (state.activeId) deleteNote(state.activeId);
   });
 
-  // color picker
   document.querySelectorAll('.color-dot').forEach(dot => {
     dot.addEventListener('click', () => setColor(dot.dataset.color));
   });
 
-  // search
   document.getElementById('searchInput').addEventListener('input', (e) => {
     state.search = e.target.value;
     renderNotesList();
   });
 
-  // keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
       if (state.user) { e.preventDefault(); createNote(); }
-    }
-    if (e.key === 'Escape' && state.activeId) {
-      // blur
     }
   });
 }
 
 /* ===== Init ===== */
 let _initialized = false;
-function init() {
+async function init() {
   if (_initialized) return;
   _initialized = true;
   wireEvents();
-  const sid = getSession();
-  if (sid) {
-    const users = getUsers();
-    const user = users.find(u => u.id === sid);
-    if (user) { enterApp(user); return; }
-    setSession(null);
+
+  // Listen to auth state changes
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session && session.user) {
+      enterApp(session.user);
+    } else if (event === 'SIGNED_OUT') {
+      state.user = null; state.notes = []; state.activeId = null;
+      showAuth();
+    }
+  });
+
+  // Check existing session
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session && session.user) {
+    enterApp(session.user);
+  } else {
+    showAuth();
   }
-  showAuth();
 }
 
 window.addEventListener('beforeunload', flushSave);
