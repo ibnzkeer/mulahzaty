@@ -35,6 +35,22 @@ function toast(msg, type = '') {
   t._timer = setTimeout(() => t.classList.add('hidden'), 3200);
 }
 
+/* ===== Theme ===== */
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+}
+function initTheme() {
+  const saved = localStorage.getItem('mulahzaty_theme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('mulahzaty_theme', next);
+}
+
 function showAuth() {
   document.getElementById('authView').classList.remove('hidden');
   document.getElementById('appView').classList.add('hidden');
@@ -350,6 +366,9 @@ function wireEvents() {
     if (confirm('هل تريد تسجيل الخروج؟')) logout();
   });
 
+  const themeBtn = document.getElementById('themeToggleBtn');
+  if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+
   document.getElementById('newNoteBtn').addEventListener('click', createNote);
   document.getElementById('emptyNewBtn').addEventListener('click', createNote);
 
@@ -383,6 +402,7 @@ let _initialized = false;
 async function init() {
   if (_initialized) return;
   _initialized = true;
+  initTheme();
   wireEvents();
 
   // Listen to auth state changes
@@ -404,6 +424,7 @@ async function init() {
   }
 }
 
+initTheme();
 window.addEventListener('beforeunload', flushSave);
 document.addEventListener('DOMContentLoaded', init);
 if (document.readyState !== 'loading') init();
